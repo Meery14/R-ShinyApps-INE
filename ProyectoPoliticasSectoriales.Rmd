@@ -1,0 +1,361 @@
+---
+title: "Proyecto de Políticas Sectoriales"
+author: "Maria Gutierrez Martin"
+runtime: shiny
+output: html_document
+---
+<!-- Protocolo: Obtención de los datos y explicación del tratamiento de los mismos.  -->
+
+<!-- En primer lugar, instalamos y cargamos los paquetes que nos vayan a ser necesarios en la obtención de datos y en la Aplicación Shiny, si los mismos no están previamente cargados en nuestro entorno de trabajo de RStudio.  -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+if (!require("readr")) {
+  install.packages("readr")
+  library("readr")
+}
+if (!require("shiny")) {
+  install.packages("shiny")
+  library("shiny")
+}
+
+if (!require("ggplot2")) {
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+if (!require("plotly")) {
+  install.packages("plotly")
+  library("plotly")
+}
+
+if (!require("pxR")) {
+  install.packages("pxR")
+  library("pxR")
+}
+
+```
+
+<!-- Una vez cargados los paquetes, procedemos a la importación de los datos.  -->
+
+<!-- En primer lugar, mencionar que utilizaremos la extensión de PC-Axis de las variables obtenidas en el INE. Para ello, hacemos uso de la librería "pxR". Directamente, con el comando %>% as.data.frame, convertimos los datos en Data, para poder manejarlos en R.  -->
+<!-- A continuación, con la función names(dataframe)[columna(numero)] <- c("nuevo nombre"), renombramos las cabeceras de las columnas de la tabla a nuestro gusto, para poder trabajar con ella con una mayor facilidad y, a la hora de verlas en Shiny, sean legibles y no presenten caracteres extraños. 
+
+Con la función save(dataframe, file = ".RData") conseguimos salvaguardar en nuestro directorio de trabajo los dataframes de forma automática en formato RData-->
+
+<!-- En este caso, para facilitar el filtrado de datos en Shiny, se ha decidido renombrar, en todas las variables, la primera columna ya que al ser un nombre compuesto en vez de espacios, las palabras se separaban con puntos u otros caracteres 
+Además, para hacer las gráficas y las tablas reactivas, ha sido necesario eliminar la palabra "Total" en todas las opciones que no correspondian al Total general. Para ello utilizamos la función gsub(pattern, string, vector) en la cual en el pattern seleccionamos desde la primera palabra hasta la ultima palabra que coincidan con .*, ignorando así los espacios en blanco 
+por último, como caso concreto, hemos decidido renombrar la palabra "superior" ya que en los valores en porcentaje aparecía la primera s mayúscula y en los totales en minúscula, por lo que así nos facilita el filtrado posteriormente -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Importacion de datos 
+
+#Gastos internos totales en actividades de I+D por años y sectores/unidad.
+variable1 <- read.px("http://www.ine.es/jaxi/files/_px/es/px/t14/p057/a2017/l0/01001.px?nocab=1") %>% as.data.frame()
+names(variable1)[c(1)]<-c("Sectores/unidad")
+variable1$`Sectores/unidad` <- gsub("Superior","superior",variable1$`Sectores/unidad`)
+variable1$`Sectores/unidad` <- gsub("Administración.*euros)","Administración Pública (miles de euros)",variable1$`Sectores/unidad`)
+variable1$`Sectores/unidad` <- gsub("Enseñanza.*euros)","Enseñanza superior (miles de euros)",variable1$`Sectores/unidad`)
+variable1$`Sectores/unidad` <- gsub("Empresas.*euros)","Empresas (miles de euros)",variable1$`Sectores/unidad`)
+variable1$`Sectores/unidad` <- gsub("IPSFL.*euros)","IPSFL (miles de euros)",variable1$`Sectores/unidad`)
+save(variable1,file = "variable1.RData")
+
+#Gastos internos totales en actividades de I+D en relación con el PIB por años y sectores de ejecución.
+variable2 <- read.px("http://www.ine.es/jaxi/files/_px/es/px/t14/p057/a2017/l0/01002.px?nocab=1") %>% as.data.frame()
+names(variable2)[c(1)]<-c("Sectores de ejecucion")  
+save(variable2,file = "variable2.RData")
+
+# Gastos internos totales en actividades de I+D por años y origen de los fondos/unidad.
+variable3 <- read.px("http://www.ine.es/jaxi/files/_px/es/px/t14/p057/a2017/l0/01003.px?nocab=1") %>% as.data.frame()
+names(variable3)[c(1)]<-c("Origen de los fondos/unidad") 
+variable3$`Origen de los fondos/unidad` <- gsub("Administración.*euros)","Administración Pública (miles de euros)",variable3$`Origen de los fondos/unidad`)
+variable3$`Origen de los fondos/unidad` <- gsub("Empresas.*euros)","Empresas (miles de euros)",variable3$`Origen de los fondos/unidad`)
+variable3$`Origen de los fondos/unidad` <- gsub("IPSFL.*euros)","IPSFL (miles de euros)",variable3$`Origen de los fondos/unidad`)
+variable3$`Origen de los fondos/unidad` <- gsub("Extranjero.*euros)","Extranjero (miles de euros)",variable3$`Origen de los fondos/unidad`)
+save(variable3,file = "variable3.RData")
+
+# Gastos internos totales en actividades de I+D por años y tipo de investigación.
+variable4 <- read.px("http://www.ine.es/jaxi/files/_px/es/px/t14/p057/a2017/l0/01004.px?nocab=1") %>% as.data.frame()
+names(variable4)[c(1)]<-c("Tipo de investigacion")  
+variable4$`Tipo de investigacion` <- gsub("básica.*euros)","básica (miles de euros)",variable4$`Tipo de investigacion`)
+variable4$`Tipo de investigacion` <- gsub("aplicada.*euros)","aplicada (miles de euros)",variable4$`Tipo de investigacion`)
+variable4$`Tipo de investigacion` <- gsub("Desarrollo.*euros)","Desarrollo tecnológico (miles de euros)",variable4$`Tipo de investigacion`)
+save(variable4,file = "variable4.RData")
+```
+
+<!-- A continuación tenemos el código de la aplicación Shiny. Iremos detallando cada una de las funciones y consideraciones a tener en cuenta en comentarios en el código.  -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+library(dplyr)
+library(plotly)
+
+
+ui <- fluidPage(
+  
+  #Titulo con el logo de la Universidad Politécnica de Madrid 
+  tags$h1(tags$img(src = "http://www.upm.es/sfs/Rectorado/Gabinete%20del%20Rector/Logos/UPM/Logotipo%20con%20Leyenda/LOGOTIPO%20leyenda%20color%20PNG.png", width = 150), tags$b("Políticas sectoriales")),
+  
+  
+  # Creamos la página 
+  sidebarLayout(
+    
+    # Creamos el panel donde van a estar las opcioines a elegir 
+    sidebarPanel(
+      
+      # Input: Escoger la base de datos a escoger
+      #Igualamos a un valor cada una de las opciones para facilitarnos el trabajo con los paneles condicionales asociados a cada         una de las variables 
+      
+      selectInput("dataset", "Escoja los gastos en I+D que desea consultar:",
+                  choices = c("Por años y sectores/unidad" = 1, 
+                              "En relación con el PIB por años y sectores de ejecución"= 2,
+                              "Por años y origen de los fondos/unidad"= 3,
+                              "Por años y tipo de investigación"= 4)),
+      
+      # Linea horizontal ----
+      tags$hr(),
+      
+      # Panel condicional 1: Panel al seleccionar la variable 1 
+      conditionalPanel(
+        condition = "input.dataset == 1",
+         # Input: Seleccionar la forma de representar los datos 
+        selectInput("dataset1", "Escoja la forma de representar el valor:",
+                    choices = c("Porcentaje" = "%", 
+                                "Miles de euros" = "(miles de euros)"),
+                    selected = "Miles de euros"),
+        
+        # Input: Seleccionar el filtrado de datos 
+        #Puedes seleccionar varias opciones para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput ("all1", "Seleccione el filtrado de datos deseado",
+                     choices = c("Total",
+                                 "Administración Pública",
+                                 "Enseñanza superior",
+                                 "Empresas",
+                                 "IPSFL"),
+                     selected = "Administración Pública",
+                     multiple = TRUE),
+          #Añadimos una nota explicativa
+         helpText("Nota: La opción de Total solo es aplicable en datos de miles de euros"),
+          
+        selectInput ("year1", "Elija el periodo que quiere consultar",
+                     choices = 2017:1984,
+                     selected = 2017),
+         helpText("Utilizamos el filtrado por periodo para las gráficas con datos porcentuales")
+        
+      ),
+      # Panel condicional 2: Panel al seleccionar la variable 2
+      
+      conditionalPanel(
+        condition = "input.dataset == 2",
+       #Puedes seleccionar diferentes sectores para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput ("all2", "Seleccione el filtrado de datos deseado",
+                     choices = c("Total",
+                                 "Administración Pública",
+                                 "Enseñanza superior",
+                                 "Empresas",
+                                 "IPSFL"),
+                     selected = "Total",
+                     multiple = TRUE),
+       
+        selectInput ("year2", "Elija el periodo que quiere consultar",
+                     choices = 2017:1984,
+                     selected = 2017),
+         helpText("Utilizamos el filtrado por periodo para las gráficas con datos porcentuales")
+       
+      ),
+      
+         # Panel condicional 3: Panel al seleccionar la variable 3 
+      conditionalPanel(
+        condition = "input.dataset == 3",
+        # Input: Seleccionar la forma de representar los datos 
+        selectInput("dataset3", "Escoja la forma de representar el valor:",
+                    choices = c("Porcentaje" = "%", 
+                                "Miles de euros" = "(miles de euros)"),
+                    selected = "Miles de euros"),
+        
+        # Input: Seleccionar el filtrado de datos 
+        #Puedes seleccionar varias opciones para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput ("all3", "Seleccione el filtrado de datos deseado",
+                     choices = c("Total",
+                                 "Administración Pública",
+                                 "Empresas",
+                                 "IPSFL",
+                                 "Extranjero"),
+                     selected = "Total",
+                     multiple = TRUE),
+        #Añadimos una nota explicativa 
+        helpText("Nota: La opción de Total solo es aplicable en datos de miles de euros"),
+        
+         selectInput ("year3", "Elija el periodo que quiere consultar",
+                     choices = 2017:1984,
+                     selected = 2017),
+         helpText("Utilizamos el filtrado por periodo para las gráficas con datos porcentuales")
+      ),
+      
+      # Panel condicional 4: Panel al seleccionar la variable 4 
+      conditionalPanel(
+        condition = "input.dataset == 4",
+         # Input: Seleccionar la forma de representar los datos
+        selectInput("dataset4", "Escoja la forma de representar el valor:",
+                    choices = c("Porcentaje" ="%", 
+                                "Miles de euros" = "(miles de euros)"),
+                    selected = "Miles de euros"),
+        
+        # Input: Seleccionar el filtrado de datos 
+        #Puedes seleccionar varias opciones para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput ("all4", "Seleccione el filtrado de datos deseado",
+                     choices = c("Total",
+                                 "Investigación básica",
+                                 "Investigación aplicada",
+                                 "Desarrollo tecnológico"),
+                     selected = "Total",
+                     multiple = TRUE),
+          #Añadimos una nota explicativa
+        helpText("Nota: La opción de Total solo es aplicable en datos de miles de euros"),
+        
+         selectInput ("year4", "Elija el periodo que quiere consultar",
+                     choices = 2017:1984,
+                     selected = 2017),
+         helpText("Utilizamos el filtrado por periodo para las gráficas con datos porcentuales")
+      )
+    ),
+  
+    # Panel principal de visualizacion ----
+    mainPanel(
+      #Selector de pestañas
+      tabsetPanel(
+        #Pestaña 1 
+        tabPanel("Tabla de datos",
+                 DT::dataTableOutput("table") 
+        ),
+        #Pestaña 2
+        tabPanel("Gráficas",
+                 plotlyOutput("grafica"),
+                 tableOutput("table2")
+        ),
+        #Pestaña 3
+        #tabPanel("Gráficas interactivas",
+        #         plotlyOutput("graficaIn")
+        #),
+        #Pestaña 4
+        tabPanel("Descargas de archivos",
+                 # Boton de descarga
+                 h4(helpText("Importante: La descarga de datos se hará de los datos seleccionados previamente en el panel de la izquierda")),
+                 downloadButton("downloadData", "Descargar en formato .csv"),
+                
+                 # Boton de descarga
+                 downloadButton("downloadData3", "Descargar en formato .RData"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  # Reactivo utilizado para filtrar los dataframes dependiendo de lo que seleccione el usuario  ----
+  # Utilizamos la función grepl(pattern,vector) para que busque en el vector aquellas filas que contengan ese pattern
+  #Utilizamos la funcion paste dentro del grelp cuando se trata de inputs multiples, para así crear un vector con todas las posibles opciones del input separado con OR lógicos para que el grepl funcione 
+  reactiveDf <- reactive({
+    if (input$dataset == 1){
+      filtrado2 = filter(variable1, grepl(input$dataset1, variable1$`Sectores/unidad`))
+      filtrado = filter(filtrado2,grepl(paste(input$all1,collapse = "|"),filtrado2$`Sectores/unidad`))
+    }
+    if (input$dataset == 2){
+      filtrado = filter(variable2, grepl(paste(input$all2,collapse="|"),variable2$`Sectores de ejecucion`))
+      }
+    if (input$dataset == 3){
+      filtrado2 = filter(variable3, grepl(input$dataset3, variable3$`Origen de los fondos/unidad`))
+      filtrado = filter(filtrado2,grepl(paste(input$all3,collapse = "|"),filtrado2$`Origen de los fondos/unidad`))
+      }
+  if (input$dataset == 4){
+      filtrado2 = filter(variable4, grepl(input$dataset4, variable4$`Tipo de investigacion`))
+      filtrado = filter(filtrado2,grepl(paste(input$all4,collapse = "|"),filtrado2$`Tipo de investigacion`))
+      }
+   return(filtrado)
+    }
+  )#Reactivo
+  
+  
+  # Se programa la tabla que va a aparecer ----
+  output$table <- DT::renderDataTable ({
+    reactiveDf()
+  })
+  
+  output$table2 <- renderTable({
+    filtrado <- reactiveDf()
+    if (input$dataset == 1){
+    filtrado3 = filter(filtrado,input$year1 == filtrado$años) }
+     if (input$dataset == 2){
+    filtrado3 = filter(filtrado,input$year2 == filtrado$años) }
+     if (input$dataset == 3){
+    filtrado3 = filter(filtrado,input$year3 == filtrado$años) }
+     if (input$dataset == 4){
+    filtrado3 = filter(filtrado,input$year4 == filtrado$años) }
+    return(filtrado3)
+  })
+  
+  #Usamos el filtrado para las graficas, y ponemos una grafica tipo plot_ly (interactiva)
+  output$grafica <- renderPlotly({
+    filtrado <- reactiveDf()
+    if (input$dataset == 1){
+      if(input$dataset1 == "%"){
+         filtrado3 = filter(filtrado, input$year1 == filtrado$años) 
+         graf <- plot_ly(filtrado3, labels = filtrado3$`Sectores/unidad`, values = filtrado3$value, type = 'pie', textposition = 'inside', textinfo = 'label+percent') }
+      else{
+      graf <- plot_ly (y=filtrado$value, x= filtrado$años, value=filtrado$value, type = "scatter", mode ="markers+lines",
+                       name = filtrado$`Sectores/unidad`) }
+    }
+    if (input$dataset == 2){
+      graf <- plot_ly (y=filtrado$value, x= filtrado$años, value=filtrado$value, type = "scatter", mode ="markers+lines",
+                       name = filtrado$`Sectores de ejecucion`)
+    }
+     if (input$dataset == 3){
+        if(input$dataset3 == "%"){
+         filtrado3 = filter(filtrado, input$year3 == filtrado$años) 
+         graf <- plot_ly(filtrado3, labels = filtrado3$`Origen de los fondos/unidad`, values = filtrado3$value, type = 'pie', textposition = 'inside', textinfo = 'label+percent')}
+      else{
+      graf <- plot_ly (y=filtrado$value, x= filtrado$años, value=filtrado$value, type = "scatter", mode ="markers+lines",
+                       name = filtrado$`Origen de los fondos/unidad`)}
+     }
+     if (input$dataset == 4){
+      if(input$dataset4 == "%"){
+         filtrado3 = filter(filtrado, input$year4 == filtrado$años) 
+         graf <- plot_ly(filtrado3, labels = filtrado3$`Tipo de investigacion`, values = filtrado3$value, type = 'pie', textposition = 'inside', textinfo = 'label+percent')}
+      else{
+      graf <- plot_ly (y=filtrado$value, x= filtrado$años, value=filtrado$value, type = "scatter", mode ="markers+lines",
+                       name = filtrado$`Tipo de investigacion`)}
+       }
+  return(graf)
+    })
+  
+  
+
+  # La base de datos escogida se va a descargar como .csv ----
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste(input$dataset, ".csv", sep = " ")
+    },
+    content = function(file) {
+      write.csv(reactiveDf(), file, row.names = FALSE)
+    }
+  )
+  
+  # La base de datos escogida se va a descargar como .RData -
+  output$downloadData3 <- downloadHandler(
+    filename = function() {
+      "variable.RData"
+    },
+    content = function(file) {
+     if(input$dataset == 1){
+      save(variable1, file = file)}
+      if(input$dataset == 2){
+      save(variable2, file = file)}
+      if(input$dataset == 3){
+      save(variable1, file = file)}
+      if(input$dataset == 4){
+      save(variable2, file = file)}
+    }
+  )
+}
+# Run the application 
+shinyApp(ui, server)
+
+```
